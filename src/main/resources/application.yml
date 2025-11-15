@@ -62,7 +62,7 @@ langchain4j:
       base-url: https://api.deepseek.com
       api-key: <Your API Key>
       model-name: deepseek-reasoner
-      max-tokens: 32768
+      max-tokens: 50000
       temperature: 1.0
       log-requests: true
       log-responses: true
