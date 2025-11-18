@@ -10,15 +10,15 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Scope;
 
-import java.util.List;
+import java.time.Duration;
 
 @Configuration
 @ConfigurationProperties(prefix = "langchain4j.open-ai.reasoning-streaming-chat-model")
 @Data
 public class ReasoningStreamingChatModelConfig {
 
-    @Resource
-    private AiModelMonitorListener aiModelMonitorListener;
+//    @Resource
+//    private AiModelMonitorListener aiModelMonitorListener;
 
     private String baseUrl;
 
@@ -34,12 +34,15 @@ public class ReasoningStreamingChatModelConfig {
 
     private Boolean logResponses = false;
 
+    private Integer timeout;
+
     /**
      * 推理流式模型(用于Vue项目生成，带工具工具调用)
      */
     @Bean
     @Scope("prototype")
     public StreamingChatModel reasoningStreamingChatModelPrototype() {
+
         return OpenAiStreamingChatModel.builder()
                 .apiKey(apiKey)
                 .baseUrl(baseUrl)
@@ -48,7 +51,8 @@ public class ReasoningStreamingChatModelConfig {
                 .temperature(temperature)
                 .logRequests(logRequests)
                 .logResponses(logResponses)
-                .listeners(List.of(aiModelMonitorListener))
+                .timeout(Duration.ofSeconds(timeout))
+//                .listeners(List.of(aiModelMonitorListener))
                 .build();
     }
 }

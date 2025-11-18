@@ -96,11 +96,14 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         BeanUtil.copyProperties(appAddRequest, app);
         app.setUserId(loginUser.getId());
         // 应用名称暂时为 initPrompt 前 12 位
-        app.setAppName(initPrompt.substring(0, Math.min(initPrompt.length(), 12)));
+//        app.setAppName(initPrompt.substring(0, Math.min(initPrompt.length(), 12)));
         // 使用AI智能路由选择代码生成类型（多例模式）
         AiCodeGenTypeRoutingService aiCodeGenTypeRoutingService = aiCodeGenTypeRoutingServiceFactory.createAiCodeGenTypeRoutingService();
         CodeGenTypeEnum codeGenType = aiCodeGenTypeRoutingService.routeCodeGenType(initPrompt);
         app.setCodeGenType(codeGenType.getValue());
+        // 通过AI 生成对应的网站名称
+        String websiteName = aiCodeGenTypeRoutingService.generateWebsiteName(initPrompt);
+        app.setAppName(websiteName);
         // 插入数据库
         boolean result = this.save(app);
         ThrowUtils.throwIf(!result, ErrorCode.OPERATION_ERROR);
@@ -129,19 +132,19 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App> implements AppSe
         // 5. 通过校验后，添加用户消息到对话历史
         chatHistoryService.addChatMessage(appId, message, ChatHistoryMessageTypeEnum.USER.getValue(), loginUser.getId());
         // 6. 设置监控上下文
-        MonitorContextHolder.setContext(
-                MonitorContext.builder()
-                        .userId(loginUser.getId().toString())
-                        .appId(appId.toString())
-                        .build()
-        );
+//        MonitorContextHolder.setContext(
+//                MonitorContext.builder()
+//                        .userId(loginUser.getId().toString())
+//                        .appId(appId.toString())
+//                        .build()
+//        );
         // 7. 调用 AI 生成代码（流式）
         Flux<String> codeStream = aiCodeGeneratorFacade.generateAndSaveCodeStream(message, codeGenType, appId);
         // 8. 收集 AI 响应内容并在完成后记录到对话历史
         return streamHandlerExecutor.doExecute(codeStream, chatHistoryService, appId, loginUser, codeGenType)
                 .doFinally(signalType -> {
                     // 流结束时清理（无论成功/失败/取消）
-                    MonitorContextHolder.clearContext();
+//                    MonitorContextHolder.clearContext();
                 });
 
     }
