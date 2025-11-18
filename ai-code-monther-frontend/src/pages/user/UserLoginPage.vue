@@ -45,7 +45,7 @@
             <a-input-password
               v-model:value="formState.userPassword"
               size="large"
-              placeholder="12345678a"
+              placeholder="12345678"
             />
           </a-form-item>
           <div class="tips">
