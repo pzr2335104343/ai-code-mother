@@ -30,7 +30,7 @@
             <a-input
               v-model:value="formState.userAccount"
               size="large"
-              placeholder="请输入账号"
+              placeholder="admin"
               allow-clear
             />
           </a-form-item>
@@ -45,7 +45,7 @@
             <a-input-password
               v-model:value="formState.userPassword"
               size="large"
-              placeholder="请输入密码"
+              placeholder="12345678a"
             />
           </a-form-item>
           <div class="tips">
