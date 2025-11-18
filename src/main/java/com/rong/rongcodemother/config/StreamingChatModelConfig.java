@@ -10,15 +10,15 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.Scope;
 
-import java.util.List;
+import java.time.Duration;
 
 @Configuration
 @ConfigurationProperties(prefix = "langchain4j.open-ai.streaming-chat-model")
 @Data
 public class StreamingChatModelConfig {
 
-    @Resource
-    private AiModelMonitorListener aiModelMonitorListener;
+//    @Resource
+//    private AiModelMonitorListener aiModelMonitorListener;
 
     private String baseUrl;
 
@@ -34,6 +34,7 @@ public class StreamingChatModelConfig {
 
     private boolean logResponses;
 
+    private Integer timeout;
     /**
      * 非推理流式模型
      */
@@ -48,7 +49,8 @@ public class StreamingChatModelConfig {
                 .temperature(temperature)
                 .logRequests(logRequests)
                 .logResponses(logResponses)
-                .listeners(List.of(aiModelMonitorListener))
+                .timeout(Duration.ofSeconds(timeout))
+//                .listeners(List.of(aiModelMonitorListener))
                 .build();
     }
 }

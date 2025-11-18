@@ -6,6 +6,7 @@ import com.rong.rongcodemother.ai.AiCodeGeneratorServiceFactory;
 import com.rong.rongcodemother.ai.model.HtmlCodeResult;
 import com.rong.rongcodemother.ai.model.MultiFileCodeResult;
 import com.rong.rongcodemother.ai.model.message.AiResponseMessage;
+import com.rong.rongcodemother.ai.model.message.AiThinkingMessage;
 import com.rong.rongcodemother.ai.model.message.ToolExecutedMessage;
 import com.rong.rongcodemother.ai.model.message.ToolRequestMessage;
 import com.rong.rongcodemother.constant.AppConstant;
@@ -46,7 +47,7 @@ public class AiCodeGeneratorFacade {
      * @param appId 应用id
      * @return 保存的目录
      */
-    public File generateAndSaveCode(String userMessage, CodeGenTypeEnum codeGenTypeEnum,Long appId) {
+    public File generateAndSaveCode(String userMessage, CodeGenTypeEnum codeGenTypeEnum, Long appId) {
         if (codeGenTypeEnum == null) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "生成类型为空");
         }
@@ -54,11 +55,11 @@ public class AiCodeGeneratorFacade {
         return switch (codeGenTypeEnum) {
             case HTML -> {
                 HtmlCodeResult result = aiCodeGeneratorService.generateHtmlCode(userMessage);
-                yield CodeFIleSaverExecutor.executeSaver(result,codeGenTypeEnum,appId);
+                yield CodeFIleSaverExecutor.executeSaver(result, codeGenTypeEnum, appId);
             }
             case MULTI_FILE -> {
                 MultiFileCodeResult result = aiCodeGeneratorService.generateMultiFileCode(userMessage);
-                yield CodeFIleSaverExecutor.executeSaver(result,codeGenTypeEnum,appId);
+                yield CodeFIleSaverExecutor.executeSaver(result, codeGenTypeEnum, appId);
             }
             default -> {
                 String errorMessage = "不支持的生成类型：" + codeGenTypeEnum.getValue();
@@ -70,12 +71,12 @@ public class AiCodeGeneratorFacade {
     /**
      * 统一入口：根据类型生成并保存代码(流式)
      *
-     * @param userMessage     用户提示词
+     * @param userMessage 用户提示词
      * @param codeGenType 生成类型
      * @param appId 应用id
      * @return 保存的目录
      */
-    public Flux<String> generateAndSaveCodeStream(String userMessage, CodeGenTypeEnum codeGenType,Long appId) {
+    public Flux<String> generateAndSaveCodeStream(String userMessage, CodeGenTypeEnum codeGenType, Long appId) {
         if (codeGenType == null) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "生成类型为空");
         }
@@ -92,7 +93,7 @@ public class AiCodeGeneratorFacade {
             }
             case VUE_PROJECT -> {
                 TokenStream tokenStream = aiCodeGeneratorService.generateVueProjectCodeStream(appId, userMessage);
-                yield processTokenStream(tokenStream,appId);
+                yield processTokenStream(tokenStream, appId);
             }
             default -> {
                 String errorMessage = "不支持的生成类型：" + codeGenType.getValue();
@@ -109,14 +110,21 @@ public class AiCodeGeneratorFacade {
      * @param appId 应用id
      * @return Flux<String> 流式响应
      */
-    private Flux<String> processTokenStream(TokenStream tokenStream,Long appId) {
+    private Flux<String> processTokenStream(TokenStream tokenStream, Long appId) {
         return Flux.create(sink -> {
-            tokenStream.onPartialResponse((String partialResponse) -> {
-                        AiResponseMessage aiResponseMessage = new AiResponseMessage(partialResponse);
+            tokenStream.onPartialResponseWithContext((partialResponse, context) -> {
+                        if (sink.isCancelled()) {
+                            context.streamingHandle().cancel();
+                        }
+                        AiResponseMessage aiResponseMessage = new AiResponseMessage(partialResponse.text());
                         sink.next(JSONUtil.toJsonStr(aiResponseMessage));
                     })
-                    .onPartialToolExecutionRequest((index, toolExecutionRequest) -> {
-                        ToolRequestMessage toolRequestMessage = new ToolRequestMessage(toolExecutionRequest);
+                    .onPartialThinking((partialThinking) -> {
+                        AiThinkingMessage aiThinkingMessage = new AiThinkingMessage(partialThinking.text());
+                        sink.next(JSONUtil.toJsonStr(aiThinkingMessage));
+                    })
+                    .beforeToolExecution((beforeToolExecutionHandler) -> {
+                        ToolRequestMessage toolRequestMessage = new ToolRequestMessage(beforeToolExecutionHandler.request());
                         sink.next(JSONUtil.toJsonStr(toolRequestMessage));
                     })
                     .onToolExecuted((ToolExecution toolExecution) -> {
@@ -137,7 +145,6 @@ public class AiCodeGeneratorFacade {
         });
     }
 
-
     /**
      * 通用流式代码处理方法
      *
@@ -146,13 +153,13 @@ public class AiCodeGeneratorFacade {
      * @param appId 应用id
      * @return 处理后的代码流
      */
-    private Flux<String> processCodeStream(Flux<String> codeStream, CodeGenTypeEnum codeGenType,Long appId) {
+    private Flux<String> processCodeStream(Flux<String> codeStream, CodeGenTypeEnum codeGenType, Long appId) {
         StringBuilder completeCode = new StringBuilder();
         return codeStream.doOnNext(completeCode::append).doOnComplete(() -> {
             try {
                 // 根据类型解析并保存代码
                 Object object = CodeParserExecutor.executeParser(completeCode.toString(), codeGenType);
-                File file = CodeFIleSaverExecutor.executeSaver(object,codeGenType,appId);
+                File file = CodeFIleSaverExecutor.executeSaver(object, codeGenType, appId);
                 log.info("保存的文件路径为：{}", file.getAbsolutePath());
             } catch (Exception e) {
                 log.error("生成代码失败", e);

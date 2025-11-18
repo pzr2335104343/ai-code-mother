@@ -60,6 +60,12 @@
                 <a-avatar :src="aiAvatar" />
               </div>
               <div class="message-content">
+                <!-- AI思考消息折叠框 -->
+                <a-collapse v-if="message.thinkingContent" :active-key="message.thinkingExpanded ? ['thinking'] : []" class="thinking-collapse" @change="handleThinkingCollapseChange(index, $event)">
+                  <a-collapse-panel header="AI思考过程" key="thinking">
+                    <div class="thinking-content">{{ message.thinkingContent }}</div>
+                  </a-collapse-panel>
+                </a-collapse>
                 <MarkdownRenderer v-if="message.content" :content="message.content" />
                 <div v-if="message.loading" class="loading-indicator">
                   <a-spin size="small" />
@@ -133,12 +139,12 @@
             <div class="input-actions">
               <a-button
                 type="primary"
-                @click="sendMessage"
-                :loading="isGenerating"
+                @click="isGenerating ? stopGeneration() : sendMessage()"
                 :disabled="!isOwner"
               >
                 <template #icon>
-                  <SendOutlined />
+                  <SendOutlined v-if="!isGenerating" />
+                  <StopOutlined v-else />
                 </template>
               </a-button>
             </div>
@@ -237,6 +243,7 @@ import {
   InfoCircleOutlined,
   DownloadOutlined,
   EditOutlined,
+  StopOutlined,
 } from '@ant-design/icons-vue'
 
 const route = useRoute()
@@ -245,7 +252,7 @@ const loginUserStore = useLoginUserStore()
 
 // 应用信息
 const appInfo = ref<API.AppVO>()
-const appId = ref<any>()
+const appId = ref<string>()
 
 // 对话相关
 interface Message {
@@ -253,12 +260,16 @@ interface Message {
   content: string
   loading?: boolean
   createTime?: string
+  thinkingContent?: string
+  thinkingExpanded?: boolean
 }
 
 const messages = ref<Message[]>([])
 const userInput = ref('')
 const isGenerating = ref(false)
 const messagesContainer = ref<HTMLElement>()
+let currentEventSource: EventSource | null = null
+let currentAiMessageIndex: number | null = null
 
 // 对话历史相关
 const loadingHistory = ref(false)
@@ -323,11 +334,7 @@ const loadChatHistory = async (isLoadMore = false) => {
       if (chatHistories.length > 0) {
         // 将对话历史转换为消息格式，并按时间正序排列（老消息在前）
         const historyMessages: Message[] = chatHistories
-          .map((chat) => ({
-            type: (chat.messageType === 'user' ? 'user' : 'ai') as 'user' | 'ai',
-            content: chat.message || '',
-            createTime: chat.createTime,
-          }))
+          .map((chat) => handleChatMessage(chat))
           .reverse() // 反转数组，让老消息在前
         if (isLoadMore) {
           // 加载更多时，将历史消息添加到开头
@@ -335,6 +342,8 @@ const loadChatHistory = async (isLoadMore = false) => {
         } else {
           // 初始加载，直接设置消息列表
           messages.value = historyMessages
+          // 恢复折叠框状态
+          restoreThinkingCollapseState()
         }
         // 更新游标
         lastCreateTime.value = chatHistories[chatHistories.length - 1]?.createTime
@@ -353,6 +362,27 @@ const loadChatHistory = async (isLoadMore = false) => {
   }
 }
 
+const handleChatMessage = (chat: API.ChatHistory) => {
+  const obj={
+            type: (chat.messageType === 'user' ? 'user' : 'ai') as 'user' | 'ai',
+            content:chat.message|| '',
+            createTime: chat.createTime,
+            thinkingContent:'',
+            thinkingExpanded: false
+  }
+  const msg = chat.message || ''
+  const start = msg.indexOf(`<ai-thinking>`)
+  const end = msg.lastIndexOf(`</ai-thinking>`)
+  const endTagLen = `</ai-thinking>`.length
+  if (start !== -1 && end !== -1 && end >= start) {
+    obj.thinkingContent = msg
+      .substring(start, end + endTagLen)
+      .replace(/<\/ai-thinking>/g, '')
+      .replace(/<ai-thinking>/g, '')
+    obj.content = msg.substring(end + endTagLen) || '';
+  }
+  return obj;
+}
 // 加载更多历史消息
 const loadMoreHistory = async () => {
   await loadChatHistory(true)
@@ -415,13 +445,19 @@ const sendInitialMessage = async (prompt: string) => {
     type: 'ai',
     content: '',
     loading: true,
+    thinkingContent: '',
+    thinkingExpanded: true
   })
+
+  // 保存初始折叠框状态
+  saveThinkingCollapseState()
 
   await nextTick()
   scrollToBottom()
 
   // 开始生成
   isGenerating.value = true
+  currentAiMessageIndex = aiMessageIndex
   await generateCode(prompt, aiMessageIndex)
 }
 
@@ -465,6 +501,8 @@ const sendMessage = async () => {
     type: 'ai',
     content: '',
     loading: true,
+    thinkingContent: '',
+    thinkingExpanded: true
   })
 
   await nextTick()
@@ -472,12 +510,12 @@ const sendMessage = async () => {
 
   // 开始生成
   isGenerating.value = true
+  currentAiMessageIndex = aiMessageIndex
   await generateCode(message, aiMessageIndex)
 }
 
 // 生成代码 - 使用 EventSource 处理流式响应
 const generateCode = async (userMessage: string, aiMessageIndex: number) => {
-  let eventSource: EventSource | null = null
   let streamCompleted = false
 
   try {
@@ -486,21 +524,87 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
 
     // 构建URL参数
     const params = new URLSearchParams({
-      appId: appId.value || '',
+      appId: appId.value != null ? String(appId.value) : '',
       message: userMessage,
     })
 
     const url = `${baseURL}/app/chat/gen/code?${params}`
 
     // 创建 EventSource 连接
-    eventSource = new EventSource(url, {
+    currentEventSource = new EventSource(url, {
       withCredentials: true,
     })
 
     let fullContent = ''
+    let thinkingContent = ''
+    const THINKING_START = '<ai-thinking>'
+    const THINKING_END = '</ai-thinking>'
+    let pendingBuffer = ''
+    let inThinking = false
+
+    const flushToUI = () => {
+      // 仅在对应区域有内容时更新，避免不必要的渲染抖动
+      messages.value[aiMessageIndex].content = fullContent
+      messages.value[aiMessageIndex].thinkingContent = thinkingContent
+      messages.value[aiMessageIndex].loading = false
+      scrollToBottom()
+    }
+
+    const processStreamChunk = (chunk: string) => {
+      if (!chunk) return
+      pendingBuffer += chunk
+
+      // 循环处理：在 pendingBuffer 中不断找开始/结束标签并切换状态
+      while (true) {
+        if (!inThinking) {
+          const startIdx = pendingBuffer.indexOf(THINKING_START)
+          if (startIdx === -1) break
+
+          // 开始标签前的内容属于正常回答
+          if (startIdx > 0) {
+            fullContent += pendingBuffer.slice(0, startIdx)
+          }
+          pendingBuffer = pendingBuffer.slice(startIdx + THINKING_START.length)
+          inThinking = true
+          continue
+        } else {
+          const endIdx = pendingBuffer.indexOf(THINKING_END)
+          if (endIdx === -1) break
+
+          // 结束标签前的内容属于思考过程
+          if (endIdx > 0) {
+            thinkingContent += pendingBuffer.slice(0, endIdx)
+          }
+          pendingBuffer = pendingBuffer.slice(endIdx + THINKING_END.length)
+          inThinking = false
+          continue
+        }
+      }
+
+      // 处理剩余 buffer：只安全地 flush 不可能构成标签的部分，保留尾部以处理跨 chunk 标签拆分
+      if (inThinking) {
+        const keep = THINKING_END.length - 1
+        if (pendingBuffer.length > keep) {
+          const safePart = pendingBuffer.slice(0, pendingBuffer.length - keep)
+          if (safePart) thinkingContent += safePart
+          pendingBuffer = pendingBuffer.slice(pendingBuffer.length - keep)
+        }
+      } else {
+        const keep = THINKING_START.length - 1
+        if (pendingBuffer.length > keep) {
+          const safePart = pendingBuffer.slice(0, pendingBuffer.length - keep)
+          if (safePart) fullContent += safePart
+          pendingBuffer = pendingBuffer.slice(pendingBuffer.length - keep)
+        }
+      }
+
+      flushToUI()
+    }
 
     // 处理接收到的消息
-    eventSource.onmessage = function (event) {
+    if (!currentEventSource) return
+
+    currentEventSource.onmessage = function (event) {
       if (streamCompleted) return
 
       try {
@@ -510,10 +614,7 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
 
         // 拼接内容
         if (content !== undefined && content !== null) {
-          fullContent += content
-          messages.value[aiMessageIndex].content = fullContent
-          messages.value[aiMessageIndex].loading = false
-          scrollToBottom()
+          processStreamChunk(String(content))
         }
       } catch (error) {
         console.error('解析消息失败:', error)
@@ -522,22 +623,24 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
     }
 
     // 处理done事件
-    eventSource.addEventListener('done', function () {
+    currentEventSource.addEventListener('done', function () {
       if (streamCompleted) return
 
       streamCompleted = true
       isGenerating.value = false
-      eventSource?.close()
+      currentEventSource?.close()
+      currentEventSource = null
+      currentAiMessageIndex = null
 
       // 延迟更新预览，确保后端已完成处理
       setTimeout(async () => {
-        await fetchAppInfo()
+        // 只更新预览，不重新加载对话历史
         updatePreview()
       }, 1000)
     })
 
     // 处理business-error事件（后端限流等错误）
-    eventSource.addEventListener('business-error', function (event: MessageEvent) {
+    currentEventSource.addEventListener('business-error', function (event: MessageEvent) {
       if (streamCompleted) return
 
       try {
@@ -552,7 +655,10 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
 
         streamCompleted = true
         isGenerating.value = false
-        eventSource?.close()
+        debugger
+        currentEventSource?.close()
+        currentEventSource = null
+        currentAiMessageIndex = null
       } catch (parseError) {
         console.error('解析错误事件失败:', parseError, '原始数据:', event.data)
         handleError(new Error('服务器返回错误'), aiMessageIndex)
@@ -561,13 +667,16 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
 
 
     // 处理错误
-    eventSource.onerror = function () {
+    currentEventSource.onerror = function () {
       if (streamCompleted || !isGenerating.value) return
       // 检查是否是正常的连接关闭
-      if (eventSource?.readyState === EventSource.CONNECTING) {
+      if (currentEventSource?.readyState === EventSource.CONNECTING) {
         streamCompleted = true
         isGenerating.value = false
-        eventSource?.close()
+        debugger
+        currentEventSource?.close()
+        currentEventSource = null
+        currentAiMessageIndex = null
 
         setTimeout(async () => {
           await fetchAppInfo()
@@ -590,13 +699,32 @@ const handleError = (error: unknown, aiMessageIndex: number) => {
   messages.value[aiMessageIndex].loading = false
   message.error('生成失败，请重试')
   isGenerating.value = false
+  if (currentEventSource) {
+    currentEventSource.close()
+    currentEventSource = null
+  }
+  currentAiMessageIndex = null
+}
+
+// 手动停止生成
+const stopGeneration = () => {
+  if (!isGenerating.value) return
+  isGenerating.value = false
+  if (currentEventSource) {
+    currentEventSource.close()
+    currentEventSource = null
+  }
+  if (currentAiMessageIndex !== null && messages.value[currentAiMessageIndex]) {
+    messages.value[currentAiMessageIndex].loading = false
+  }
+  currentAiMessageIndex = null
 }
 
 // 更新预览
 const updatePreview = () => {
   if (appId.value) {
     const codeGenType = appInfo.value?.codeGenType || CodeGenTypeEnum.HTML
-    const newPreviewUrl = getStaticPreviewUrl(codeGenType, appId.value)
+    const newPreviewUrl = getStaticPreviewUrl(codeGenType, String(appId.value))
     previewUrl.value = newPreviewUrl
     previewReady.value = true
   }
@@ -764,6 +892,61 @@ onMounted(() => {
   })
 })
 
+// 保存折叠框状态到本地存储
+const saveThinkingCollapseState = () => {
+  try {
+    const state = messages.value.map(msg => ({
+      contentHash: msg.content ? msg.content.substring(0, 100) : '', // 使用消息内容的前100个字符作为唯一标识
+      thinkingExpanded: msg.thinkingExpanded
+    }))
+    localStorage.setItem(`thinkingState_${appId.value}`, JSON.stringify(state))
+  } catch (error) {
+    console.error('保存折叠框状态失败:', error)
+  }
+}
+
+// 从本地存储恢复折叠框状态
+const restoreThinkingCollapseState = () => {
+  try {
+    const stateStr = localStorage.getItem(`thinkingState_${appId.value}`)
+    if (stateStr) {
+      const savedState: Array<{ contentHash: string; thinkingExpanded: boolean }> = JSON.parse(stateStr)
+      messages.value.forEach(msg => {
+        const matchedState = savedState.find((s) =>
+          s.contentHash === (msg.content ? msg.content.substring(0, 100) : '')
+        )
+        if (matchedState !== undefined) {
+          msg.thinkingExpanded = matchedState.thinkingExpanded
+        } else if (msg.thinkingContent) {
+          // 如果没有保存的状态但有思考内容，默认展开
+          msg.thinkingExpanded = true
+        }
+      })
+    } else {
+      // 如果没有保存的状态，所有有思考内容的消息都默认展开
+      messages.value.forEach(msg => {
+        if (msg.thinkingContent) {
+          msg.thinkingExpanded = true
+        }
+      })
+    }
+  } catch (error) {
+    console.error('恢复折叠框状态失败:', error)
+    // 出错时，所有有思考内容的消息都默认展开
+    messages.value.forEach(msg => {
+      if (msg.thinkingContent) {
+        msg.thinkingExpanded = true
+      }
+    })
+  }
+}
+
+// 处理AI思考折叠框状态变化
+const handleThinkingCollapseChange = (messageIndex: number, keys: string[]) => {
+  messages.value[messageIndex].thinkingExpanded = keys.length > 0;
+  saveThinkingCollapseState()
+}
+
 // 清理资源
 onUnmounted(() => {
   // EventSource 会在组件卸载时自动清理
@@ -882,6 +1065,18 @@ onUnmounted(() => {
   align-items: center;
   gap: 8px;
   color: #666;
+}
+
+/* AI思考消息折叠框样式 */
+.thinking-collapse {
+  margin-top: 8px;
+}
+
+.thinking-content {
+  padding: 8px;
+  background-color: #f0f0f0;
+  border-radius: 4px;
+  white-space: pre-wrap;
 }
 
 /* 加载更多按钮 */

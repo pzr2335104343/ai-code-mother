@@ -171,7 +171,7 @@ declare namespace API {
   }
 
   type listAppChatHistoryParams = {
-    appId: number
+    appId: string
     pageSize?: number
     lastCreateTime?: string
   }

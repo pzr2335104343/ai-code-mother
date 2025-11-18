@@ -72,10 +72,10 @@ public class AiCodeGeneratorServiceFactory {
 
     /**
      * 创建新的 AI 服务实例
-     *
-     * @param appId       应用 ID
+     * @param appId 应用 ID
      * @param codeGenType 代码生成模式
      * @return AI 服务实例
+     *
      */
     private AiCodeGeneratorService createAiCodeGeneratorService(long appId, CodeGenTypeEnum codeGenType) {
         // 根据 appId 构建独立的对话记忆
@@ -83,7 +83,7 @@ public class AiCodeGeneratorServiceFactory {
                 .builder()
                 .id(appId)
                 .chatMemoryStore(redisChatMemoryStore)
-                .maxMessages(40)
+                .maxMessages(100)
                 .build();
         // 从数据库加载历史对话到记忆中
         chatHistoryService.loadChatHistoryToMemory(appId, chatMemory, 35);
@@ -102,7 +102,7 @@ public class AiCodeGeneratorServiceFactory {
                         ))
                         .maxSequentialToolsInvocations(20) // 最多连续调用20次工具
                         .inputGuardrails(new PromptSafetyInputGuardrail())
-//                        .outputGuardrails(new RetryOutputGuardrail()) 为了能够流式输出，不使用输出护轨
+//                        .outputGuardrails(new RetryOutputGuardrail())  //为了能够流式输出，不使用输出护轨
                         .build();
             }
             // HTML 和多文件生成使用默认模型

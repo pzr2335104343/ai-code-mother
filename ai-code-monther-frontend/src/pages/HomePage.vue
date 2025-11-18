@@ -13,7 +13,7 @@
         <a-textarea
           v-model:value="userPrompt"
           placeholder="帮我创建个人博客网站"
-          :rows="4"
+          :rows="6"
           :maxlength="1000"
           class="prompt-input"
         />
@@ -453,7 +453,7 @@ onMounted(() => {
 /* 输入区域 */
 .input-section {
   position: relative;
-  margin: 0 auto 10px;
+  margin: 0 auto 20px;
   max-width: 800px;
 }
 
@@ -519,7 +519,7 @@ onMounted(() => {
   display: flex;
   gap: 12px;
   justify-content: center;
-  margin-bottom: 40px;
+  margin-bottom: 100px;
   flex-wrap: wrap;
 }
 
@@ -527,9 +527,9 @@ onMounted(() => {
   border-radius: 25px;
   padding: 8px 20px;
   height: auto;
-  background: rgba(207, 235, 198, 0.322);
-  border: 1px solid rgba(40, 91, 193, 0.28);
-  color: #5a79bd;
+  background: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(255, 184, 108, 0.4);
+  color: #ff8a5b;
   backdrop-filter: blur(10px);
   transition: all 0.25s ease;
   position: relative;
@@ -543,7 +543,7 @@ onMounted(() => {
   left: -100%;
   width: 100%;
   height: 100%;
-  background: linear-gradient(90deg, transparent, rgba(99, 155, 255, 0.18), transparent);
+  background: linear-gradient(90deg, transparent, rgba(255, 184, 108, 0.2), transparent);
   transition: left 0.45s;
 }
 
@@ -552,11 +552,11 @@ onMounted(() => {
 }
 
 .quick-actions .ant-btn:hover {
-  background: rgba(99, 155, 255, 0.18);
-  border-color: rgba(99, 155, 255, 0.42);
-  color: #2b5ac7;
+  background: rgba(255, 184, 108, 0.25);
+  border-color: rgba(255, 184, 108, 0.7);
+  color: #ff6f61;
   transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(99, 155, 255, 0.22);
+  box-shadow: 0 8px 24px rgba(255, 138, 91, 0.3);
 }
 
 /* 区域标题 */
