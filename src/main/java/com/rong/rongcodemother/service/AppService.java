@@ -2,6 +2,7 @@ package com.rong.rongcodemother.service;
 
 import com.mybatisflex.core.query.QueryWrapper;
 import com.mybatisflex.core.service.IService;
+import com.rong.rongcodemother.model.dto.app.AppAddRequest;
 import com.rong.rongcodemother.model.dto.app.AppQueryRequest;
 import com.rong.rongcodemother.model.entity.App;
 import com.rong.rongcodemother.model.entity.User;
@@ -14,6 +15,15 @@ import java.util.List;
  *  服务层。
  */
 public interface AppService extends IService<App> {
+
+
+    /**
+     * 创建应用
+     * @param appAddRequest 创建参数
+     * @param loginUser 登录用户
+     * @return 应用ID
+     */
+    Long createApp(AppAddRequest appAddRequest, User loginUser);
 
     /**
      *
@@ -32,6 +42,13 @@ public interface AppService extends IService<App> {
      * @return 可访问的部署URL
      */
     String deployApp(Long appId,User loginUser);
+
+    /**
+     * 异步生成应用截图并更新应用封面
+     * @param appId 应用ID
+     * @param appUrl 应用访问地址
+     */
+    void generateAppScreenshotAsync(Long appId, String appUrl);
 
     /**
      * 根据查询请求获取查询条件

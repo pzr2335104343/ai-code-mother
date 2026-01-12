@@ -1,0 +1,87 @@
+# 线上配置文件
+spring:
+  rabbitmq:
+    host: 116.62.79.19
+    port: 5672
+    username: guest
+    password: guest
+    virtual-host: /
+    listener:
+      simple:
+        acknowledge-mode: manual # 手动ACK（确保消息可靠消费）
+        prefetch: 1 # 限流：每次只处理1条消息
+  datasource:
+    url: jdbc:mysql://116.62.79.19:3306/rong_ai_code_mother?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&connectTimeout=30000&socketTimeout=60000
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    username:
+    password:
+  # redis
+  data:
+    redis:
+      host: 116.62.79.19
+      port: 6379
+      database: 0
+      password:
+      ttl: 3600
+# AI
+langchain4j:
+  open-ai:
+    chat-model:
+      base-url: https://api.deepseek.com
+      api-key:
+      model-name: deepseek-chat
+      max-tokens: 8192
+      log-requests: true
+      log-responses: true
+    streaming-chat-model:
+      base-url: https://api.deepseek.com
+      api-key:
+      model-name: deepseek-chat
+      max-tokens: 8192
+      log-requests: true
+      log-responses: true
+      timeout: 300
+    # 推理 AI 模型配置（用于复杂的推理任务）
+    reasoning-streaming-chat-model:
+      base-url: https://open.bigmodel.cn/api/paas/v4/
+      api-key:
+      model-name: GLM-4.6
+      max-tokens: 64800
+      temperature: 0.1
+      log-requests: true
+      log-responses: true
+      timeout: 300
+    # 智能路由 AI 模型配置
+    routing-chat-model:
+      base-url: https://dashscope.aliyuncs.com/compatible-mode/v1
+      api-key:
+      model-name: qwen-turbo
+      max-tokens: 100
+      log-requests: true
+      log-responses: true
+# 添加 COS 对象存储配置（需要从腾讯云获取）
+cos:
+  client:
+    host: https://ai-code-monther-1333553851.cos.ap-shanghai.myqcloud.com
+    secretId: xx
+    secretKey: xx
+    region: ap-shanghai
+    bucket: ai-code-monther-1333553851
+# 生产环境关闭日志
+mybatis-flex:
+  configuration:
+    log-impl: ''
+# 接口文档配置
+springdoc:
+  group-configs:
+    - group: 'default'
+      paths-to-match: '/**'
+      packages-to-scan: com.rong.rongcodemother.controller
+knife4j:
+  basic:
+    enable: false
+    username: root
+    password: 123456
+# 部署路径
+code:
+  deploy-host: http://xxx.cn/dist

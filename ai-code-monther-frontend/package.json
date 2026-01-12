@@ -1,10 +1,11 @@
 {
-  "name": "yu-ai-code-mother-frontend",
+  "name": "rong-ai-code-mother-frontend",
   "version": "0.0.0",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "pure-build": "vite build",
     "build": "run-p type-check \"build-only {@}\" --",
     "preview": "vite preview",
     "openapi2ts": "openapi2ts",

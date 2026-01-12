@@ -1,9 +1,9 @@
 <template>
-  <div class="markdown-content" v-html="renderedMarkdown"></div>
+  <div class="markdown-content" ref="markdownRef" v-html="renderedMarkdown"></div>
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, watch, nextTick, ref, onUpdated } from 'vue'
 import MarkdownIt from 'markdown-it'
 import hljs from 'highlight.js'
 
@@ -15,6 +15,7 @@ interface Props {
 }
 
 const props = defineProps<Props>()
+const markdownRef = ref<HTMLElement>()
 
 // 配置 markdown-it 实例
 const md: MarkdownIt = new MarkdownIt({
@@ -41,6 +42,68 @@ const md: MarkdownIt = new MarkdownIt({
 // 计算渲染后的 Markdown
 const renderedMarkdown = computed(() => {
   return md.render(props.content)
+})
+
+// 重新高亮代码块的函数
+const rehighlightCodeBlocks = () => {
+  if (!markdownRef.value) return
+  
+  // 查找所有 pre code 元素
+  const codeBlocks = markdownRef.value.querySelectorAll('pre code')
+  
+  codeBlocks.forEach((block) => {
+    const pre = block.parentElement
+    if (!pre) return
+    
+    const text = block.textContent || ''
+    if (!text.trim()) return
+    
+    // 检查代码块是否已经有高亮
+    // 方法1: 检查是否有 hljs 类
+    // 方法2: 检查 innerHTML 是否包含高亮标签（如 <span class="hljs-xxx">）
+    const hasHljsClass = block.classList.contains('hljs')
+    const hasHighlightTags = block.innerHTML.includes('<span class="hljs-') || 
+                             block.innerHTML.includes('<span class=\'hljs-')
+    
+    // 如果没有高亮，则重新高亮
+    if (!hasHljsClass || !hasHighlightTags) {
+      try {
+        // 尝试自动检测语言并高亮
+        const result = hljs.highlightAuto(text, [
+          'javascript', 'typescript', 'html', 'css', 'json', 'python', 
+          'java', 'cpp', 'c', 'go', 'rust', 'php', 'ruby', 'swift', 
+          'kotlin', 'xml', 'yaml', 'markdown', 'bash', 'shell', 'sql',
+          'vue', 'jsx', 'tsx', 'scss', 'less', 'dockerfile', 'nginx'
+        ])
+        block.innerHTML = result.value
+        block.className = 'hljs'
+        pre.className = 'hljs'
+      } catch (error) {
+        // 如果自动检测失败，至少添加 hljs 类
+        console.warn('代码高亮失败:', error)
+        block.className = 'hljs'
+        pre.className = 'hljs'
+      }
+    }
+  })
+}
+
+// 监听内容变化，立即重新高亮（移除防抖以确保所有代码块都被处理）
+watch(
+  () => props.content,
+  () => {
+    nextTick(() => {
+      rehighlightCodeBlocks()
+    })
+  },
+  { immediate: false }
+)
+
+// 在组件更新后也重新高亮
+onUpdated(() => {
+  nextTick(() => {
+    rehighlightCodeBlocks()
+  })
 })
 </script>
 
@@ -122,7 +185,7 @@ const renderedMarkdown = computed(() => {
   background-color: transparent;
   padding: 0;
   border-radius: 0;
-  font-size: 0.9em;
+  font-size: 1.1em;
   line-height: 1.4;
 }
 
@@ -174,8 +237,8 @@ const renderedMarkdown = computed(() => {
 .markdown-content :deep(.hljs) {
   background-color: #f8f8f8 !important;
   border-radius: 6px;
-  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
-  font-size: 0.9em;
+  font-family: '宋体', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 1.1em;
   line-height: 1.4;
 }
 

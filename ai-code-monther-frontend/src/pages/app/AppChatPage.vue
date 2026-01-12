@@ -4,6 +4,9 @@
     <div class="header-bar">
       <div class="header-left">
         <h1 class="app-name">{{ appInfo?.appName || '网站生成器' }}</h1>
+        <a-tag v-if="appInfo?.codeGenType" color="blue" class="code-gen-type-tag">
+          {{ formatCodeGenType(appInfo.codeGenType) }}
+        </a-tag>
       </div>
       <div class="header-right">
         <a-button type="default" @click="showAppDetail">
@@ -12,11 +15,23 @@
           </template>
           应用详情
         </a-button>
+        <a-button
+          type="primary"
+          ghost
+          @click="downloadCode"
+          :loading="downloading"
+          :disabled="!isOwner"
+        >
+          <template #icon>
+            <DownloadOutlined />
+          </template>
+          下载代码
+        </a-button>
         <a-button type="primary" @click="deployApp" :loading="deploying">
           <template #icon>
             <CloudUploadOutlined />
           </template>
-          部署按钮
+          部署
         </a-button>
       </div>
     </div>
@@ -61,13 +76,51 @@
           </div>
         </div>
 
+        <!-- 选中元素信息展示 -->
+        <a-alert
+          v-if="selectedElementInfo"
+          class="selected-element-alert"
+          type="info"
+          closable
+          @close="clearSelectedElement"
+        >
+          <template #message>
+            <div class="selected-element-info">
+              <div class="element-header">
+                <span class="element-tag">
+                  选中元素：{{ selectedElementInfo.tagName.toLowerCase() }}
+                </span>
+                <span v-if="selectedElementInfo.id" class="element-id">
+                  #{{ selectedElementInfo.id }}
+                </span>
+                <span v-if="selectedElementInfo.className" class="element-class">
+                  .{{ selectedElementInfo.className.split(' ').join('.') }}
+                </span>
+              </div>
+              <div class="element-details">
+                <div v-if="selectedElementInfo.textContent" class="element-item">
+                  内容: {{ selectedElementInfo.textContent.substring(0, 50) }}
+                  {{ selectedElementInfo.textContent.length > 50 ? '...' : '' }}
+                </div>
+                <div v-if="selectedElementInfo.pagePath" class="element-item">
+                  页面路径: {{ selectedElementInfo.pagePath }}
+                </div>
+                <div class="element-item">
+                  选择器:
+                  <code class="element-selector-code">{{ selectedElementInfo.selector }}</code>
+                </div>
+              </div>
+            </div>
+          </template>
+        </a-alert>
+
         <!-- 用户消息输入框 -->
         <div class="input-container">
           <div class="input-wrapper">
             <a-tooltip v-if="!isOwner" title="无法在别人的作品下对话哦~" placement="top">
               <a-textarea
                 v-model:value="userInput"
-                placeholder="请描述你想生成的网站，越详细效果越好哦"
+                :placeholder="getInputPlaceholder()"
                 :rows="4"
                 :maxlength="1000"
                 @keydown.enter.prevent="sendMessage"
@@ -77,7 +130,7 @@
             <a-textarea
               v-else
               v-model:value="userInput"
-              placeholder="请描述你想生成的网站，越详细效果越好哦"
+              :placeholder="getInputPlaceholder()"
               :rows="4"
               :maxlength="1000"
               @keydown.enter.prevent="sendMessage"
@@ -86,12 +139,12 @@
             <div class="input-actions">
               <a-button
                 type="primary"
-                @click="sendMessage"
-                :loading="isGenerating"
+                @click="isGenerating ? stopGeneration() : sendMessage()"
                 :disabled="!isOwner"
               >
                 <template #icon>
-                  <SendOutlined />
+                  <SendOutlined v-if="!isGenerating" />
+                  <StopOutlined v-else />
                 </template>
               </a-button>
             </div>
@@ -103,6 +156,19 @@
         <div class="preview-header">
           <h3>生成后的网页展示</h3>
           <div class="preview-actions">
+            <a-button
+              v-if="isOwner && previewUrl"
+              type="link"
+              :danger="isEditMode"
+              @click="toggleEditMode"
+              :class="{ 'edit-mode-active': isEditMode }"
+              style="padding: 0; height: auto; margin-right: 12px"
+            >
+              <template #icon>
+                <EditOutlined />
+              </template>
+              {{ isEditMode ? '退出编辑' : '编辑模式' }}
+            </a-button>
             <a-button v-if="previewUrl" type="link" @click="openInNewTab">
               <template #icon>
                 <ExportOutlined />
@@ -152,7 +218,7 @@
 <script setup lang="ts">
 import { ref, onMounted, nextTick, onUnmounted, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { message, Collapse } from 'ant-design-vue'
+import { message } from 'ant-design-vue'
 import { useLoginUserStore } from '@/stores/loginUser'
 import {
   getAppVoById,
@@ -160,7 +226,7 @@ import {
   deleteApp as deleteAppApi,
 } from '@/api/appController'
 import { listAppChatHistory } from '@/api/chatHistoryController'
-import { CodeGenTypeEnum } from '@/utils/codeGenTypes'
+import { CodeGenTypeEnum, formatCodeGenType } from '@/utils/codeGenTypes'
 import request from '@/request'
 
 import MarkdownRenderer from '@/components/MarkdownRenderer.vue'
@@ -168,15 +234,17 @@ import AppDetailModal from '@/components/AppDetailModal.vue'
 import DeploySuccessModal from '@/components/DeploySuccessModal.vue'
 import aiAvatar from '@/assets/aiAvatar.png'
 import { API_BASE_URL, getStaticPreviewUrl } from '@/config/env'
+import { VisualEditor, type ElementInfo } from '@/utils/visualEditor'
 
 import {
   CloudUploadOutlined,
   SendOutlined,
   ExportOutlined,
   InfoCircleOutlined,
+  DownloadOutlined,
+  EditOutlined,
+  StopOutlined,
 } from '@ant-design/icons-vue'
-
-const { Panel } = Collapse
 
 const route = useRoute()
 const router = useRouter()
@@ -184,7 +252,7 @@ const loginUserStore = useLoginUserStore()
 
 // 应用信息
 const appInfo = ref<API.AppVO>()
-const appId = ref<any>()
+const appId = ref<string>()
 
 // 对话相关
 interface Message {
@@ -200,6 +268,8 @@ const messages = ref<Message[]>([])
 const userInput = ref('')
 const isGenerating = ref(false)
 const messagesContainer = ref<HTMLElement>()
+let currentEventSource: EventSource | null = null
+let currentAiMessageIndex: number | null = null
 
 // 对话历史相关
 const loadingHistory = ref(false)
@@ -215,6 +285,18 @@ const previewReady = ref(false)
 const deploying = ref(false)
 const deployModalVisible = ref(false)
 const deployUrl = ref('')
+
+// 下载相关
+const downloading = ref(false)
+
+// 可视化编辑相关
+const isEditMode = ref(false)
+const selectedElementInfo = ref<ElementInfo | null>(null)
+const visualEditor = new VisualEditor({
+  onElementSelected: (elementInfo: ElementInfo) => {
+    selectedElementInfo.value = elementInfo
+  },
+})
 
 // 权限相关
 const isOwner = computed(() => {
@@ -288,11 +370,16 @@ const handleChatMessage = (chat: API.ChatHistory) => {
             thinkingContent:'',
             thinkingExpanded: false
   }
-  const start = chat.message?.indexOf(`<ai-thinking>`)
-  const end = chat.message?.lastIndexOf(`</ai-thinking>`)
-  if (start !== -1 && end !== -1) {
-    obj.thinkingContent = chat.message?.substring(start, end+14).replaceAll(`</ai-thinking>`, '').replaceAll(`<ai-thinking>`, '')
-    obj.content = chat.message?.substring(end+14)||'';
+  const msg = chat.message || ''
+  const start = msg.indexOf(`<ai-thinking>`)
+  const end = msg.lastIndexOf(`</ai-thinking>`)
+  const endTagLen = `</ai-thinking>`.length
+  if (start !== -1 && end !== -1 && end >= start) {
+    obj.thinkingContent = msg
+      .substring(start, end + endTagLen)
+      .replace(/<\/ai-thinking>/g, '')
+      .replace(/<ai-thinking>/g, '')
+    obj.content = msg.substring(end + endTagLen) || '';
   }
   return obj;
 }
@@ -370,6 +457,7 @@ const sendInitialMessage = async (prompt: string) => {
 
   // 开始生成
   isGenerating.value = true
+  currentAiMessageIndex = aiMessageIndex
   await generateCode(prompt, aiMessageIndex)
 }
 
@@ -379,14 +467,33 @@ const sendMessage = async () => {
     return
   }
 
-  const message = userInput.value.trim()
+  let message = userInput.value.trim()
+  // 如果有选中的元素，将元素信息添加到提示词中
+  if (selectedElementInfo.value) {
+    let elementContext = `\n\n选中元素信息：`
+    if (selectedElementInfo.value.pagePath) {
+      elementContext += `\n- 页面路径: ${selectedElementInfo.value.pagePath}`
+    }
+    elementContext += `\n- 标签: ${selectedElementInfo.value.tagName.toLowerCase()}\n- 选择器: ${selectedElementInfo.value.selector}`
+    if (selectedElementInfo.value.textContent) {
+      elementContext += `\n- 当前内容: ${selectedElementInfo.value.textContent.substring(0, 100)}`
+    }
+    message += elementContext
+  }
   userInput.value = ''
-
-  // 添加用户消息
+  // 添加用户消息（包含元素信息）
   messages.value.push({
     type: 'user',
     content: message,
   })
+
+  // 发送消息后，清除选中元素并退出编辑模式
+  if (selectedElementInfo.value) {
+    clearSelectedElement()
+    if (isEditMode.value) {
+      toggleEditMode()
+    }
+  }
 
   // 添加AI消息占位符
   const aiMessageIndex = messages.value.length
@@ -403,12 +510,12 @@ const sendMessage = async () => {
 
   // 开始生成
   isGenerating.value = true
+  currentAiMessageIndex = aiMessageIndex
   await generateCode(message, aiMessageIndex)
 }
 
 // 生成代码 - 使用 EventSource 处理流式响应
 const generateCode = async (userMessage: string, aiMessageIndex: number) => {
-  let eventSource: EventSource | null = null
   let streamCompleted = false
 
   try {
@@ -417,22 +524,87 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
 
     // 构建URL参数
     const params = new URLSearchParams({
-      appId: appId.value || '',
+      appId: appId.value != null ? String(appId.value) : '',
       message: userMessage,
     })
 
     const url = `${baseURL}/app/chat/gen/code?${params}`
 
     // 创建 EventSource 连接
-    eventSource = new EventSource(url, {
+    currentEventSource = new EventSource(url, {
       withCredentials: true,
     })
 
     let fullContent = ''
     let thinkingContent = ''
+    const THINKING_START = '<ai-thinking>'
+    const THINKING_END = '</ai-thinking>'
+    let pendingBuffer = ''
+    let inThinking = false
+
+    const flushToUI = () => {
+      // 仅在对应区域有内容时更新，避免不必要的渲染抖动
+      messages.value[aiMessageIndex].content = fullContent
+      messages.value[aiMessageIndex].thinkingContent = thinkingContent
+      messages.value[aiMessageIndex].loading = false
+      scrollToBottom()
+    }
+
+    const processStreamChunk = (chunk: string) => {
+      if (!chunk) return
+      pendingBuffer += chunk
+
+      // 循环处理：在 pendingBuffer 中不断找开始/结束标签并切换状态
+      while (true) {
+        if (!inThinking) {
+          const startIdx = pendingBuffer.indexOf(THINKING_START)
+          if (startIdx === -1) break
+
+          // 开始标签前的内容属于正常回答
+          if (startIdx > 0) {
+            fullContent += pendingBuffer.slice(0, startIdx)
+          }
+          pendingBuffer = pendingBuffer.slice(startIdx + THINKING_START.length)
+          inThinking = true
+          continue
+        } else {
+          const endIdx = pendingBuffer.indexOf(THINKING_END)
+          if (endIdx === -1) break
+
+          // 结束标签前的内容属于思考过程
+          if (endIdx > 0) {
+            thinkingContent += pendingBuffer.slice(0, endIdx)
+          }
+          pendingBuffer = pendingBuffer.slice(endIdx + THINKING_END.length)
+          inThinking = false
+          continue
+        }
+      }
+
+      // 处理剩余 buffer：只安全地 flush 不可能构成标签的部分，保留尾部以处理跨 chunk 标签拆分
+      if (inThinking) {
+        const keep = THINKING_END.length - 1
+        if (pendingBuffer.length > keep) {
+          const safePart = pendingBuffer.slice(0, pendingBuffer.length - keep)
+          if (safePart) thinkingContent += safePart
+          pendingBuffer = pendingBuffer.slice(pendingBuffer.length - keep)
+        }
+      } else {
+        const keep = THINKING_START.length - 1
+        if (pendingBuffer.length > keep) {
+          const safePart = pendingBuffer.slice(0, pendingBuffer.length - keep)
+          if (safePart) fullContent += safePart
+          pendingBuffer = pendingBuffer.slice(pendingBuffer.length - keep)
+        }
+      }
+
+      flushToUI()
+    }
 
     // 处理接收到的消息
-    eventSource.onmessage = function (event) {
+    if (!currentEventSource) return
+
+    currentEventSource.onmessage = function (event) {
       if (streamCompleted) return
 
       try {
@@ -442,23 +614,7 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
 
         // 拼接内容
         if (content !== undefined && content !== null) {
-          // 检查是否是AI思考消息
-          if (content.includes('<ai-thinking>') && content.includes('</ai-thinking>')) {
-            // 提取AI思考内容
-            const thinkingMatch = content.match(/<ai-thinking>(.*?)<\/ai-thinking>/)
-            if (thinkingMatch && thinkingMatch[1]) {
-              thinkingContent += thinkingMatch[1]
-              messages.value[aiMessageIndex].thinkingContent = thinkingContent
-              messages.value[aiMessageIndex].loading = false
-              scrollToBottom()
-            }
-          } else {
-            // 普通内容
-            fullContent += content
-            messages.value[aiMessageIndex].content = fullContent
-            messages.value[aiMessageIndex].loading = false
-            scrollToBottom()
-          }
+          processStreamChunk(String(content))
         }
       } catch (error) {
         console.error('解析消息失败:', error)
@@ -467,12 +623,14 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
     }
 
     // 处理done事件
-    eventSource.addEventListener('done', function () {
+    currentEventSource.addEventListener('done', function () {
       if (streamCompleted) return
 
       streamCompleted = true
       isGenerating.value = false
-      eventSource?.close()
+      currentEventSource?.close()
+      currentEventSource = null
+      currentAiMessageIndex = null
 
       // 延迟更新预览，确保后端已完成处理
       setTimeout(async () => {
@@ -481,14 +639,44 @@ const generateCode = async (userMessage: string, aiMessageIndex: number) => {
       }, 1000)
     })
 
-    // 处理错误
-    eventSource.onerror = function () {
-      if (streamCompleted || !isGenerating.value) return
-      // 检查是否是正常的连接关闭
-      if (eventSource?.readyState === EventSource.CONNECTING) {
+    // 处理business-error事件（后端限流等错误）
+    currentEventSource.addEventListener('business-error', function (event: MessageEvent) {
+      if (streamCompleted) return
+
+      try {
+        const errorData = JSON.parse(event.data)
+        console.error('SSE业务错误事件:', errorData)
+
+        // 显示具体的错误信息
+        const errorMessage = errorData.message || '生成过程中出现错误'
+        messages.value[aiMessageIndex].content = `❌ ${errorMessage}`
+        messages.value[aiMessageIndex].loading = false
+        message.error(errorMessage)
+
         streamCompleted = true
         isGenerating.value = false
-        eventSource?.close()
+        debugger
+        currentEventSource?.close()
+        currentEventSource = null
+        currentAiMessageIndex = null
+      } catch (parseError) {
+        console.error('解析错误事件失败:', parseError, '原始数据:', event.data)
+        handleError(new Error('服务器返回错误'), aiMessageIndex)
+      }
+    })
+
+
+    // 处理错误
+    currentEventSource.onerror = function () {
+      if (streamCompleted || !isGenerating.value) return
+      // 检查是否是正常的连接关闭
+      if (currentEventSource?.readyState === EventSource.CONNECTING) {
+        streamCompleted = true
+        isGenerating.value = false
+        debugger
+        currentEventSource?.close()
+        currentEventSource = null
+        currentAiMessageIndex = null
 
         setTimeout(async () => {
           await fetchAppInfo()
@@ -511,13 +699,32 @@ const handleError = (error: unknown, aiMessageIndex: number) => {
   messages.value[aiMessageIndex].loading = false
   message.error('生成失败，请重试')
   isGenerating.value = false
+  if (currentEventSource) {
+    currentEventSource.close()
+    currentEventSource = null
+  }
+  currentAiMessageIndex = null
+}
+
+// 手动停止生成
+const stopGeneration = () => {
+  if (!isGenerating.value) return
+  isGenerating.value = false
+  if (currentEventSource) {
+    currentEventSource.close()
+    currentEventSource = null
+  }
+  if (currentAiMessageIndex !== null && messages.value[currentAiMessageIndex]) {
+    messages.value[currentAiMessageIndex].loading = false
+  }
+  currentAiMessageIndex = null
 }
 
 // 更新预览
 const updatePreview = () => {
   if (appId.value) {
     const codeGenType = appInfo.value?.codeGenType || CodeGenTypeEnum.HTML
-    const newPreviewUrl = getStaticPreviewUrl(codeGenType, appId.value)
+    const newPreviewUrl = getStaticPreviewUrl(codeGenType, String(appId.value))
     previewUrl.value = newPreviewUrl
     previewReady.value = true
   }
@@ -527,6 +734,44 @@ const updatePreview = () => {
 const scrollToBottom = () => {
   if (messagesContainer.value) {
     messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+  }
+}
+
+// 下载代码
+const downloadCode = async () => {
+  if (!appId.value) {
+    message.error('应用ID不存在')
+    return
+  }
+  downloading.value = true
+  try {
+    const API_BASE_URL = request.defaults.baseURL || ''
+    const url = `${API_BASE_URL}/app/download/${appId.value}`
+    const response = await fetch(url, {
+      method: 'GET',
+      credentials: 'include',
+    })
+    if (!response.ok) {
+      throw new Error(`下载失败: ${response.status}`)
+    }
+    // 获取文件名
+    const contentDisposition = response.headers.get('Content-Disposition')
+    const fileName = contentDisposition?.match(/filename="(.+)"/)?.[1] || `app-${appId.value}.zip`
+    // 下载文件
+    const blob = await response.blob()
+    const downloadUrl = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = downloadUrl
+    link.download = fileName
+    link.click()
+    // 清理
+    URL.revokeObjectURL(downloadUrl)
+    message.success('代码下载成功')
+  } catch (error) {
+    console.error('下载失败：', error)
+    message.error('下载失败，请重试')
+  } finally {
+    downloading.value = false
   }
 }
 
@@ -575,6 +820,11 @@ const openDeployedSite = () => {
 // iframe加载完成
 const onIframeLoad = () => {
   previewReady.value = true
+  const iframe = document.querySelector('.preview-iframe') as HTMLIFrameElement
+  if (iframe) {
+    visualEditor.init(iframe)
+    visualEditor.onIframeLoad()
+  }
 }
 
 // 编辑应用
@@ -603,9 +853,43 @@ const deleteApp = async () => {
   }
 }
 
+// 可视化编辑相关函数
+const toggleEditMode = () => {
+  // 检查 iframe 是否已经加载
+  const iframe = document.querySelector('.preview-iframe') as HTMLIFrameElement
+  if (!iframe) {
+    message.warning('请等待页面加载完成')
+    return
+  }
+  // 确保 visualEditor 已初始化
+  if (!previewReady.value) {
+    message.warning('请等待页面加载完成')
+    return
+  }
+  const newEditMode = visualEditor.toggleEditMode()
+  isEditMode.value = newEditMode
+}
+
+const clearSelectedElement = () => {
+  selectedElementInfo.value = null
+  visualEditor.clearSelection()
+}
+
+const getInputPlaceholder = () => {
+  if (selectedElementInfo.value) {
+    return `正在编辑 ${selectedElementInfo.value.tagName.toLowerCase()} 元素，描述您想要的修改...`
+  }
+  return '请描述你想生成的网站，越详细效果越好哦'
+}
+
 // 页面加载时获取应用信息
 onMounted(() => {
   fetchAppInfo()
+
+  // 监听 iframe 消息
+  window.addEventListener('message', (event) => {
+    visualEditor.handleIframeMessage(event)
+  })
 })
 
 // 保存折叠框状态到本地存储
@@ -626,9 +910,9 @@ const restoreThinkingCollapseState = () => {
   try {
     const stateStr = localStorage.getItem(`thinkingState_${appId.value}`)
     if (stateStr) {
-      const savedState = JSON.parse(stateStr)
+      const savedState: Array<{ contentHash: string; thinkingExpanded: boolean }> = JSON.parse(stateStr)
       messages.value.forEach(msg => {
-        const matchedState = savedState.find((s: any) =>
+        const matchedState = savedState.find((s) =>
           s.contentHash === (msg.content ? msg.content.substring(0, 100) : '')
         )
         if (matchedState !== undefined) {
@@ -692,6 +976,10 @@ onUnmounted(() => {
   gap: 12px;
 }
 
+.code-gen-type-tag {
+  font-size: 12px;
+}
+
 .app-name {
   margin: 0;
   font-size: 18px;
@@ -725,7 +1013,7 @@ onUnmounted(() => {
 }
 
 .messages-container {
-  flex: 1;
+  flex: 0.9;
   padding: 16px;
   overflow-y: auto;
   scroll-behavior: smooth;
@@ -887,6 +1175,10 @@ onUnmounted(() => {
   border: none;
 }
 
+.selected-element-alert {
+  margin: 0 16px;
+}
+
 /* 响应式设计 */
 @media (max-width: 1024px) {
   .main-content {
@@ -916,6 +1208,71 @@ onUnmounted(() => {
 
   .message-content {
     max-width: 85%;
+  }
+
+  /* 选中元素信息样式 */
+  .selected-element-alert {
+    margin: 0 16px;
+  }
+
+  .selected-element-info {
+    line-height: 1.4;
+  }
+
+  .element-header {
+    margin-bottom: 8px;
+  }
+
+  .element-details {
+    margin-top: 8px;
+  }
+
+  .element-item {
+    margin-bottom: 4px;
+    font-size: 13px;
+  }
+
+  .element-item:last-child {
+    margin-bottom: 0;
+  }
+
+  .element-tag {
+    font-family: 'Monaco', 'Menlo', monospace;
+    font-size: 14px;
+    font-weight: 600;
+    color: #007bff;
+  }
+
+  .element-id {
+    color: #28a745;
+    margin-left: 4px;
+  }
+
+  .element-class {
+    color: #ffc107;
+    margin-left: 4px;
+  }
+
+  .element-selector-code {
+    font-family: 'Monaco', 'Menlo', monospace;
+    background: #f6f8fa;
+    padding: 2px 4px;
+    border-radius: 3px;
+    font-size: 12px;
+    color: #d73a49;
+    border: 1px solid #e1e4e8;
+  }
+
+  /* 编辑模式按钮样式 */
+  .edit-mode-active {
+    background-color: #52c41a !important;
+    border-color: #52c41a !important;
+    color: white !important;
+  }
+
+  .edit-mode-active:hover {
+    background-color: #73d13d !important;
+    border-color: #73d13d !important;
   }
 }
 </style>
