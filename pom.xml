@@ -11,8 +11,6 @@
     <groupId>com.rong</groupId>
     <artifactId>rong-ai-code-mother</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>ai-code-mother</name>
-    <description>ai-code-mother</description>
     <properties>
         <java.version>21</java.version>
         <spring-boot.version>3.5.4</spring-boot.version>
@@ -189,8 +187,7 @@
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <version>${spring-boot.version}</version>
                 <configuration>
-                    <mainClass>com.rong.aicodemother.AiCodeMotherApplication</mainClass>
-                    <skip>true</skip>
+                    <mainClass>com.rong.rongcodemother.RongAiCodeMontherApplication</mainClass>
                 </configuration>
                 <executions>
                     <execution>

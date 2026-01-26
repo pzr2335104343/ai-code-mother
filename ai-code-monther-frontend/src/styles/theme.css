@@ -16,6 +16,22 @@
   --transition-fast: 150ms;
   --transition-mid: 220ms;
   --transition-slow: 360ms;
+
+  /* AI思考框专属变量 */
+  --thinking-bg-start: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --thinking-bg-glass: rgba(255, 255, 255, 0.95);
+  --thinking-border: rgba(102, 126, 234, 0.2);
+  --thinking-shadow: 0 8px 32px rgba(102, 126, 234, 0.15);
+  --thinking-accent: #667eea;
+
+  /* 消息气泡变量 */
+  --message-user-bg: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --message-ai-bg: linear-gradient(135deg, #f5f7fa 0%, #e8ecf3 100%);
+  --message-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+
+  /* 预览区域变量 */
+  --preview-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  --preview-glass-bg: rgba(255, 255, 255, 0.7);
 }
 
 /* 页面背景与基础排版 */
@@ -92,6 +108,107 @@ body {
 .fade-up-leave-to {
   opacity: 0;
   transform: translateY(8px);
+}
+
+/* ========== 新增：灵动动画效果 ========== */
+
+/* 消息气泡入场动画 */
+@keyframes messageSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* AI思考框脉冲动画 */
+@keyframes thinkingPulse {
+  0%, 100% {
+    box-shadow: 0 4px 16px rgba(102, 126, 234, 0.15), 0 0 0 0 rgba(102, 126, 234, 0.4);
+  }
+  50% {
+    box-shadow: 0 6px 24px rgba(102, 126, 234, 0.25), 0 0 0 8px rgba(102, 126, 234, 0);
+  }
+}
+
+/* 渐变流动动画 */
+@keyframes gradientFlow {
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+/* 预览区域展开动画 */
+@keyframes previewReveal {
+  from {
+    opacity: 0;
+    transform: scale(0.95) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+/* 闪烁提示动画 */
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* 思考内容打字机效果 */
+@keyframes thinkingTypewriter {
+  from {
+    opacity: 0.6;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* 悬浮微动效果 */
+@keyframes floatGentle {
+  0%, 100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-2px);
+  }
+}
+
+/* 应用动画的类 */
+.animate-message-in {
+  animation: messageSlideIn 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.animate-thinking-pulse {
+  animation: thinkingPulse 2s ease-in-out infinite;
+}
+
+.animate-gradient-flow {
+  background-size: 200% 200%;
+  animation: gradientFlow 3s ease infinite;
+}
+
+.animate-preview-reveal {
+  animation: previewReveal 0.6s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.animate-float-gentle {
+  animation: floatGentle 3s ease-in-out infinite;
 }
 
 

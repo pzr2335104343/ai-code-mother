@@ -30,7 +30,7 @@
             <a-input
               v-model:value="formState.userAccount"
               size="large"
-              placeholder="admin"
+              placeholder="user"
               allow-clear
             />
           </a-form-item>

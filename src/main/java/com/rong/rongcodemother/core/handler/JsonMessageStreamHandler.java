@@ -62,6 +62,7 @@ public class JsonMessageStreamHandler {
                 .doOnCancel(() -> {
                     // 前端取消LLM传输时，保存当前对话记忆
                     String message = chatHistoryStringBuilder.toString();
+                    log.error("中断AI响应");
                     chatHistoryService.addChatMessage(appId, message, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
                 })
                 .doOnError(error -> {
